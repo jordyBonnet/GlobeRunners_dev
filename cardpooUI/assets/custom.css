@@ -1,0 +1,30 @@
+/* Make the filter bar fixed at the top */
+#filter-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  z-index: 1050;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+/* Add top margin to main content so it doesn't hide behind the filter bar */
+#main-content {
+  margin-top: 110px; /* Adjust if filter bar height changes */
+}
+
+@media (max-width: 768px) {
+  #main-content {
+    margin-top: 180px;
+  }
+}
+@media (max-width: 576px) {
+  .card-responsive { width: 100% !important; min-width: 0 !important; }
+}
+@media (min-width: 577px) and (max-width: 900px) {
+  .card-responsive { width: 48% !important; min-width: 0 !important; }
+}
+@media (min-width: 901px) {
+  .card-responsive { width: 18rem !important; min-width: 0 !important; }
+}

@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+lib/artdesign/cards/
+
+lib/artdesign/cards_ex/
+
+lib/artdesign/cards_framed/
+
+lib/artdesign/3D
