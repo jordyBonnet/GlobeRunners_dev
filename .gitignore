@@ -16,3 +16,5 @@ lib/artdesign/cards_ex/
 lib/artdesign/cards_framed/
 
 lib/artdesign/3D
+
+*.pdf

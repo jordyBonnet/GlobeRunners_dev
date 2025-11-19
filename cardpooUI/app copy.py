@@ -18,6 +18,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 import io
 import ast
+import base64
 
 # Load the card pool
 db_path = os.path.join(os.path.dirname(__file__), '..', 'lib', 'cardpool', 'cardpool.parquet')
@@ -40,8 +41,8 @@ def serve_card_image(filename):
 
 app.layout = dmc.MantineProvider([
     dbc.Container([
-        # Deck Drawer and Open Button
-        dmc.Drawer(
+        
+        dmc.Drawer(     # Deck Drawer and Open Button
             id='deck-drawer',
             # title='Your Deck',
             padding='md',
@@ -80,13 +81,13 @@ app.layout = dmc.MantineProvider([
             style={'position': 'fixed', 'top': 8, 'left': 150, 'zIndex': 2100, 'padding': '0.3rem 0.7rem', 'fontSize': '0.9rem', 'color': 'red'},
         ),
         dcc.Download(id="pdf-download"),
-
-        # Modal for deck stats
-        dmc.Modal(
+        
+        dmc.Modal(      # Modal for deck stats
             id="deck-stats-modal",
             title="Deck Statistics",
             centered=True,
             size="xl",
+            zIndex=3000,  # <-- Add this line
             children=[
                 dmc.Stack([
                     dmc.Text("Deck Mana Histogram", size="lg"),
@@ -120,29 +121,35 @@ app.layout = dmc.MantineProvider([
                 DashIconify(icon="mdi:content-save", width=14),
                 radius='xl',
                 size='sm',
-                color='yellow',
+                color="#caae60",
             ),
             size='xs',
             variant='light',
-            style={'position': 'fixed', 'top': 8, 'left': 450, 'zIndex': 2100, 'padding': '0.3rem 0.7rem', 'fontSize': '0.9rem', 'color': 'yellow'},
-        ),
-
-        # Modal for deck name input
-        dmc.Modal(
-            id="save-deck-modal",
-            title="Save Deck",
-            centered=True,
-            size="sm",
-            children=[
-                dmc.Text("Enter a name for your deck:"),
-                dmc.TextInput(id="deck-name-input", placeholder="Deck name", style={"marginBottom": 10}),
-                dmc.Button("Save", id="confirm-save-deck-btn", color="yellow", fullWidth=True)
-            ],
-            opened=False,
-            withCloseButton=True,
+            style={'position': 'fixed', 'top': 8, 'left': 450, 'zIndex': 2100, 'padding': '0.3rem 0.7rem', 'fontSize': '0.9rem', 'color': '#caae60'},
         ),
         dcc.Download(id="save-deck-download"),
 
+        dcc.Upload(     # Load deck
+            id='deck-upload',
+            children=dmc.Button(     # Load deck
+                "Load deck",
+                id='load-deck-btn',
+                leftSection=dmc.ThemeIcon(
+                    DashIconify(icon="mdi:folder-upload", width=14),
+                    radius='xl',
+                    size='sm',
+                    color="#c600d8",
+                ),
+                size='xs',
+                variant='light',
+                style={'position': 'fixed', 'top': 8, 'left': 600, 'zIndex': 2100, 'padding': '0.3rem 0.7rem', 'fontSize': '0.9rem', 'color': '#c600d8'},
+            ),
+            style={
+                'display': 'inline-block',
+            },
+            multiple=False,
+        ),
+        
         html.Div([      # Top filter menu
             dbc.Row([
                 dbc.Col([
@@ -205,53 +212,21 @@ app.layout = dmc.MantineProvider([
     ], fluid=True, style={'backgroundColor': '#0a0a0a'})
 ])
 
-# Open/close the deck drawer
-@app.callback(
-    Output("save-deck-modal", "opened"),
-    [Input("save-deck-btn", "n_clicks"), Input("save-deck-modal", "onClose"), Input("confirm-save-deck-btn", "n_clicks")],
-    [State("save-deck-modal", "opened")],
-    prevent_initial_call=False
-)
-def toggle_save_deck_modal(open_click, close_event, confirm_click, opened):
-    ctx = callback_context
-    if not ctx.triggered:
-        print('\nNew loaded page ------------------')
-        return dash.no_update
-    trigger = ctx.triggered[0]["prop_id"].split(".")[0]
-    if trigger == "save-deck-btn":
-        return True
-    if trigger == "save-deck-modal" or trigger == "confirm-save-deck-btn":
-        return False
-    return dash.no_update
 
-# Save deck callback
+# Save deck callback: direct download
 @app.callback(
     Output("save-deck-download", "data"),
-    Input("confirm-save-deck-btn", "n_clicks"),
+    Input("save-deck-btn", "n_clicks"),
     State("deck", "data"),
-    State("deck-name-input", "value"),
     prevent_initial_call=True
 )
-def save_deck_to_txt(n_clicks, deck, deck_name):
-    if not n_clicks or not deck or not deck_name:
+def save_deck_to_txt(n_clicks, deck):
+    if not n_clicks or not deck:
         return dash.no_update
-    import collections
-    # Count occurrences
-    counts = collections.Counter(deck)
-    lines = [f"{count} x {card_id}" for card_id, count in counts.items()]
+    lines = [f"{card_id}" for card_id in deck]
     txt_content = "\n".join(lines)
-    # Clean deck name for filename
-    safe_name = "".join(c for c in deck_name if c.isalnum() or c in (" ", "_", "-"))
-    safe_name = safe_name.strip().replace(" ", "_")
-    filename = f"{safe_name}.txt"
-    # Save in decks_saved folder
-    folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'cardpooUI', 'decks_saved'))
-    os.makedirs(folder, exist_ok=True)
-    file_path = os.path.join(folder, filename)
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(txt_content)
-    # No download, just save to file
-    return dash.no_update
+    filename = "my_deck.txt"
+    return dcc.send_bytes(txt_content.encode("utf-8"), filename)
 
 # Deck Stats modal opening
 @app.callback(
@@ -364,10 +339,11 @@ def show_deck(deck):
 )
 def update_cards(faction, mana, advancing, shield, condition, effect, deck):
     # Show message if fewer than 2 filters are set
+    n_min_filters = 3
     filters = [faction, mana, advancing, shield, condition, effect]
     num_set = sum(1 for f in filters if f)
-    if num_set < 2:
-        return [html.Div("Select at least two filters to view cards.", style={
+    if num_set < n_min_filters:
+        return [html.Div(f"Select at least {n_min_filters} filters to view cards.", style={
             'color': 'white', 'fontSize': '1.5rem', 'textAlign': 'center', 'marginTop': '2rem'})]
     filtered = df
     if faction:
@@ -412,7 +388,6 @@ def update_cards(faction, mana, advancing, shield, condition, effect, deck):
         cards.append(card)
     return cards
 
-
 # Add/remove a card to the deck using Button
 @app.callback(
     [Output('deck', 'data'), Output('show-alert', 'data'), Output('last-added-card', 'data'), Output('last-removed-card', 'data')],
@@ -432,7 +407,7 @@ def update_deck(add_n_clicks, rem_n_clicks, deck):
         return deck, False, None, None
     
     prop_id = ctx.triggered[0]['prop_id']
-    print(f'ctx.triggered --> {ctx.triggered}')
+    # print(f'ctx.triggered --> {ctx.triggered}')
     card_id = ast.literal_eval(prop_id.split('.')[0])['index']
 
     if 'add-to-deck' in prop_id and prop_id.endswith('.n_clicks'):
@@ -447,34 +422,28 @@ def update_deck(add_n_clicks, rem_n_clicks, deck):
     
     return deck, False, None, None
 
-""" A implementer !!!!
-CAS 1 - click direct add -> remove
-
-update_deck: prop_id --> {"index":"Dem21_2f33a6","type":"add-to-deck"}.checked
-        checked: True, value: True, card_id not in deck: True ---> carte à ajouter au deck
-
-update_deck: prop_id --> {"index":"Dem21_2f33a6","type":"add-to-deck"}.checked
-        checked: False, value: True, card_id not in deck: False ---> carte à retirer du deck
-
-
-CAS 2 - click après changement filtre
-
-update_deck: prop_id --> {"index":"Dem21_2f33a6","type":"add-to-deck"}.checked
-        checked: True, value: True, card_id not in deck: True ---> carte à ajouter au deck
-
-update_deck: prop_id --> {"index":"Dem21_2f33a6","type":"add-to-deck"}.checked
-        checked: True, value: False, card_id not in deck: False ---> carte à retirer du deck
-
-        
-CAS 3 - click après changement filtre mais dans le drawer deck cette fois-ci
-
-update_deck: prop_id --> {"index":"Dem21_2f33a6","type":"add-to-deck"}.checked
-        checked: True, value: True, card_id not in deck: True
-
-update_deck: prop_id --> {"index":"Dem21_2f33a6","type":"add-to-deck"}.checked
-        checked: True, value: False, card_id not in deck: False
-
-"""
+@app.callback(
+    [Output('deck', 'data', allow_duplicate=True), Output('deck-drawer', 'opened', allow_duplicate=True)],
+    Input('deck-upload', 'contents'),
+    State('deck', 'data'),
+    prevent_initial_call=True
+)
+def load_deck_from_file(contents, deck):
+    if not contents:
+        return dash.no_update, dash.no_update
+    deck = list(deck) if deck else []
+    _, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    try:
+        card_ids = [line.strip() for line in decoded.decode('utf-8').splitlines() if line.strip()]
+        print(f'deck UPLOAD: {card_ids}')
+        for card_id in card_ids:
+            print(f'deck UPLOAD: Loading card_id: {card_id}')
+            if card_id not in deck:
+                deck.append(card_id)
+        return deck, True
+    except Exception:
+        return dash.no_update
 
 # Show/hide alert and set its content when card is added or removed
 @app.callback(
@@ -534,14 +503,12 @@ def generate_pdf(n_clicks, deck):
     # Center the grid on the page
     margin_x = (page_width - grid_width) / 2 if page_width > grid_width else 0
     margin_y = (page_height - grid_height) / 2 if page_height > grid_height else 0
+    
     # Duplicate deck list
     card_ids = deck
     # Prepare PDF
     pdf_buffer = io.BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=A4)
-
-    c.setFillColorRGB(0, 0, 0)
-    c.rect(margin_x, margin_y, grid_width, grid_height, fill=1, stroke=0)
 
     for idx, card_id in enumerate(card_ids):        
         img_path = os.path.join(cards_dir, f"{card_id}.png")
@@ -549,12 +516,22 @@ def generate_pdf(n_clicks, deck):
         row = (idx // cols) % rows
         if idx > 0 and idx % (cols * rows) == 0:
             c.showPage()
-            c.setFillColorRGB(0, 0, 0)
-            c.rect(margin_x, margin_y, grid_width, grid_height, fill=1, stroke=0)
         x = margin_x + col * (card_width_pt + spacing_pt)
         y = page_height - margin_y - ((row + 1) * card_height_pt + row * spacing_pt)
 
         try:
+            # Draw a black rectangle behind the card image, slightly larger than the card
+            border_mm = spacing_mm * 2  # Make the border larger than spacing
+            border_pt = border_mm * mm_to_pt
+            c.setFillColorRGB(0, 0, 0)
+            c.rect(
+                x - border_pt / 2,
+                y - border_pt / 2,
+                card_width_pt + border_pt,
+                card_height_pt + border_pt,
+                fill=1,
+                stroke=0
+            )
             c.drawImage(ImageReader(img_path), x, y, width=card_width_pt, height=card_height_pt, preserveAspectRatio=False, mask='auto')
         except Exception as e:
             continue
