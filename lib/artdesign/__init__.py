@@ -7,6 +7,10 @@ import os
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
 import io
 import numpy as np
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
+import io
 
 
 class ArtDesignClient:
@@ -102,6 +106,11 @@ class ArtDesignClient:
                     images_out.append(image)
 
         return images_out
+
+# Example usage:
+# client = ArtDesignClient()
+# prompts = ["masterpiece best quality man", "a man holding a panel with 'jordy love'"]
+# images_list = client.run_prompts(prompts)
 
 
 class CardLayers:
@@ -342,7 +351,74 @@ class CardLayers:
         imBase.save('im_layered_result.png')
         # imBase.show()
 
-# Example usage:
-# client = ArtDesignClient()
-# prompts = ["masterpiece best quality man", "a man holding a panel with 'jordy love'"]
-# images_list = client.run_prompts(prompts)
+class Utils:
+    """ class with utility functions """
+    
+    def generate_pdf_from_deck(self, deck):
+        """ will output a pdf file with all the cards in the deck (list of cards_ids) """
+        # Get the image folder
+        cards_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'cards_framed'))
+        # PDF settings
+        page_width, page_height = A4  # in points (1 pt = 1/72 inch)
+        # Card size in mm
+        card_width_mm = 63
+        card_height_mm = 88
+        # Convert mm to points: 1 mm = 2.83465 pt
+        mm_to_pt = 2.83465
+        card_width_pt = card_width_mm * mm_to_pt
+        card_height_pt = card_height_mm * mm_to_pt
+        # Spacing between cards (0.5mm)
+        spacing_mm = 0.5
+        spacing_pt = spacing_mm * mm_to_pt
+
+        # Compute how many cards fit per row/column, accounting for spacing between cards
+        cols = int((page_width + spacing_pt) // (card_width_pt + spacing_pt))
+        rows = int((page_height + spacing_pt) // (card_height_pt + spacing_pt))
+
+        # Compute total grid size
+        grid_width = cols * card_width_pt + (cols - 1) * spacing_pt
+        grid_height = rows * card_height_pt + (rows - 1) * spacing_pt
+
+        # Center the grid on the page
+        margin_x = (page_width - grid_width) / 2 if page_width > grid_width else 0
+        margin_y = (page_height - grid_height) / 2 if page_height > grid_height else 0
+        
+        # Duplicate deck list
+        card_ids = deck
+        # Prepare PDF
+        pdf_buffer = io.BytesIO()
+        c = canvas.Canvas(pdf_buffer, pagesize=A4)
+
+        # Add instruction text at the top of the first page
+        instruction_text = "Scaling parameter: Fit to Paper Size & NO Duplex printing"
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(40, page_height - 40, instruction_text)
+
+        for idx, card_id in enumerate(card_ids):        
+            img_path = os.path.join(cards_dir, f"{card_id}.png")
+            col = idx % cols
+            row = (idx // cols) % rows
+            if idx > 0 and idx % (cols * rows) == 0:
+                c.showPage()
+            x = margin_x + col * (card_width_pt + spacing_pt)
+            y = page_height - margin_y - ((row + 1) * card_height_pt + row * spacing_pt)
+
+            try:
+                # Draw a black rectangle behind the card image, slightly larger than the card
+                border_mm = spacing_mm * 2  # Make the border larger than spacing
+                border_pt = border_mm * mm_to_pt
+                c.setFillColorRGB(0, 0, 0)
+                c.rect(
+                    x - border_pt / 2,
+                    y - border_pt / 2,
+                    card_width_pt + border_pt,
+                    card_height_pt + border_pt,
+                    fill=1,
+                    stroke=0
+                )
+                c.drawImage(ImageReader(img_path), x, y, width=card_width_pt, height=card_height_pt, preserveAspectRatio=False, mask='auto')
+            except Exception as e:
+                continue
+        c.save()
+        pdf_buffer.seek(0)
+        return pdf_buffer.getvalue()

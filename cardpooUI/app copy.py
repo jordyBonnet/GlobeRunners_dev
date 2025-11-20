@@ -13,17 +13,18 @@ from dash_iconify import DashIconify
 import os
 import socket
 from flask import send_file
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.utils import ImageReader
-import io
 import ast
 import base64
+import sys
+HOME_DIR = r'c:\Users\jordy\Documents\python\projects\GenAI_TCG'
+sys.path.append(HOME_DIR)
+from lib.artdesign import Utils
 
 # Load the card pool
 db_path = os.path.join(os.path.dirname(__file__), '..', 'lib', 'cardpool', 'cardpool.parquet')
 print(db_path)
 df = pl.read_parquet(db_path)
+utils = Utils()
 
 # Get unique filter options
 def get_options(col):
@@ -31,13 +32,23 @@ def get_options(col):
 
 
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.MINTY, dbc.icons.BOOTSTRAP])
+app = dash.Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.MINTY, dbc.icons.BOOTSTRAP],
+)
 
 # Serve card images from lib/artdesign/cards_framed
 @app.server.route('/cards_framed/<path:filename>')
 def serve_card_image(filename):
     cards_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib', 'artdesign', 'cards_framed'))
     return send_from_directory(cards_dir, filename)
+
+# Serve game assets from lib/artdesign/cards_assets
+@app.server.route('/cards_assets/<path:filename>')
+def serve_game_asset(filename):
+    assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib', 'artdesign', 'cards_assets'))
+    return send_from_directory(assets_dir, filename)
+
 
 app.layout = dmc.MantineProvider([
     dbc.Container([
@@ -156,9 +167,11 @@ app.layout = dmc.MantineProvider([
                     dbc.Row([
                         dbc.Col([
                             dcc.Dropdown(id='faction-filter', options=get_options('faction'), multi=True, placeholder='Faction'),
+                            dmc.Text("⚠️ Select at least 3 filters to view cards", size="xs", c="dimmed", style={"marginBottom": "0.5rem"}),
                         ], xs=12, sm=6, md=4, lg=2, className='mb-2'),
                         dbc.Col([
                             dcc.Dropdown(id='mana-filter', options=get_options('mana'), multi=True, placeholder='Mana'),
+                            dmc.Text("Cards loading time is quite long, sorry 😔", size="xs", c="dimmed", style={"marginBottom": "0.5rem"}),
                         ], xs=12, sm=6, md=4, lg=2, className='mb-2'),
                         dbc.Col([
                             dcc.Dropdown(id='advancing-filter', options=get_options('advancing'), multi=True, placeholder='Advancing'),
@@ -343,8 +356,9 @@ def update_cards(faction, mana, advancing, shield, condition, effect, deck):
     filters = [faction, mana, advancing, shield, condition, effect]
     num_set = sum(1 for f in filters if f)
     if num_set < n_min_filters:
-        return [html.Div(f"Select at least {n_min_filters} filters to view cards.", style={
-            'color': 'white', 'fontSize': '1.5rem', 'textAlign': 'center', 'marginTop': '2rem'})]
+        return presentation_page()
+        # return [html.Div(f"Select at least {n_min_filters} filters to view cards.", style={
+        #     'color': 'white', 'fontSize': '1.5rem', 'textAlign': 'center'})]
     filtered = df
     if faction:
         filtered = filtered.filter(pl.col('faction').is_in(faction))
@@ -361,7 +375,6 @@ def update_cards(faction, mana, advancing, shield, condition, effect, deck):
     cards = []
     for row in filtered.iter_rows(named=True):
         img_path = f"/cards_framed/{row['card_id']}.png"
-        is_in_deck = row['card_id'] in deck
         card = dbc.Card([
             html.Div([
                 dbc.CardImg(src=img_path, top=True, style={'objectFit': 'contain', 'width': '100%', 'height': 'auto', 'maxHeight': '350px', 'background': "#0a0a0a"}),
@@ -477,73 +490,36 @@ def show_alert(added, card_id, removed_id):
 def generate_pdf(n_clicks, deck):
     if not n_clicks or not deck:
         return dash.no_update
-    # Get the image folder
-    cards_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib', 'artdesign', 'cards_framed'))
-    # PDF settings
-    page_width, page_height = A4  # in points (1 pt = 1/72 inch)
-    # Card size in mm
-    card_width_mm = 63
-    card_height_mm = 88
-    # Convert mm to points: 1 mm = 2.83465 pt
-    mm_to_pt = 2.83465
-    card_width_pt = card_width_mm * mm_to_pt
-    card_height_pt = card_height_mm * mm_to_pt
-    # Spacing between cards (0.5mm)
-    spacing_mm = 0.5
-    spacing_pt = spacing_mm * mm_to_pt
-
-    # Compute how many cards fit per row/column, accounting for spacing between cards
-    cols = int((page_width + spacing_pt) // (card_width_pt + spacing_pt))
-    rows = int((page_height + spacing_pt) // (card_height_pt + spacing_pt))
-
-    # Compute total grid size
-    grid_width = cols * card_width_pt + (cols - 1) * spacing_pt
-    grid_height = rows * card_height_pt + (rows - 1) * spacing_pt
-
-    # Center the grid on the page
-    margin_x = (page_width - grid_width) / 2 if page_width > grid_width else 0
-    margin_y = (page_height - grid_height) / 2 if page_height > grid_height else 0
     
-    # Duplicate deck list
-    card_ids = deck
-    # Prepare PDF
-    pdf_buffer = io.BytesIO()
-    c = canvas.Canvas(pdf_buffer, pagesize=A4)
+    pdf = utils.generate_pdf_from_deck(deck)
+    
+    return dcc.send_bytes(pdf, filename="GR_deck.pdf")
 
-    for idx, card_id in enumerate(card_ids):        
-        img_path = os.path.join(cards_dir, f"{card_id}.png")
-        col = idx % cols
-        row = (idx // cols) % rows
-        if idx > 0 and idx % (cols * rows) == 0:
-            c.showPage()
-        x = margin_x + col * (card_width_pt + spacing_pt)
-        y = page_height - margin_y - ((row + 1) * card_height_pt + row * spacing_pt)
-
-        try:
-            # Draw a black rectangle behind the card image, slightly larger than the card
-            border_mm = spacing_mm * 2  # Make the border larger than spacing
-            border_pt = border_mm * mm_to_pt
-            c.setFillColorRGB(0, 0, 0)
-            c.rect(
-                x - border_pt / 2,
-                y - border_pt / 2,
-                card_width_pt + border_pt,
-                card_height_pt + border_pt,
-                fill=1,
-                stroke=0
-            )
-            c.drawImage(ImageReader(img_path), x, y, width=card_width_pt, height=card_height_pt, preserveAspectRatio=False, mask='auto')
-        except Exception as e:
-            continue
-    c.save()
-    pdf_buffer.seek(0)
-    return dcc.send_bytes(pdf_buffer.getvalue(), filename="deck_print.pdf")
-
-
+# First presentation page
+def presentation_page():
+    return dmc.Center(
+        dmc.Stack([
+            dmc.Image(
+                src = f"/cards_assets/GlobeRunners_large_logo.png",
+                w=800,
+                fit="contain",
+                style={"marginBottom": "2rem"}
+            ),
+            dmc.Text("GlobeRunners, is a free Print and Play (PnP) deck building card game.", size="md"),
+            dmc.Text("Deck build around 6 main factions and 3 support factions (5400+ cards) to find your signature playstyle and be the first to travel around the world.", size="md"),
+            html.A("If you want to know more about the game please check theses Google Slides", href="https://docs.google.com/presentation/d/1z8EvBVcOxjh-tqTbaPtmv5BvFKnN5--I628QCtqlDOc/edit?slide=id.g39d59216dc3_0_117#slide=id.g39d59216dc3_0_117"),
+            
+        ], align="center", gap="xs"),  # <-- Add gap="xs" to reduce vertical space
+        style={"height": "50vh", "color": "white"}
+    )
 
 
 if __name__ == '__main__':
+    # debug mode
     ip = socket.gethostbyname(socket.gethostname())
     print(f"Running on http://{ip}:8050")
     app.run(debug=True, host=ip, port=8050)
+
+    # production mode
+    # app.run(host="0.0.0.0", port=8050)
 

@@ -1,6 +1,12 @@
-""" command to run: uv run cardpooUI/app.py
+""" 
 This app serves as a web interface for the card pool, allowing users to filter and view cards, as well as generate a PDF for printing.
 
+command to run: uv run cardpooUI/app.py
+
+command to expose via cloudflare tunnel (C:\softs\cloudfared):
+.\cloudflared-windows-amd64.exe tunnel --url http://0.0.0.0:8050/
+
+use: https://free-url-shortener.rb.gy/ to reduce the given long url by cloudflare
 """
 
 from flask import send_from_directory
@@ -13,17 +19,18 @@ from dash_iconify import DashIconify
 import os
 import socket
 from flask import send_file
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.utils import ImageReader
-import io
 import ast
 import base64
+import sys
+HOME_DIR = r'c:\Users\jordy\Documents\python\projects\GenAI_TCG'
+sys.path.append(HOME_DIR)
+from lib.artdesign import Utils
 
 # Load the card pool
 db_path = os.path.join(os.path.dirname(__file__), '..', 'lib', 'cardpool', 'cardpool.parquet')
-print(db_path)
 df = pl.read_parquet(db_path)
+deck_path = os.path.join(os.path.dirname(__file__), 'decks_saved')
+utils = Utils()
 
 # Get unique filter options
 def get_options(col):
@@ -31,13 +38,24 @@ def get_options(col):
 
 
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.MINTY, dbc.icons.BOOTSTRAP])
+app = dash.Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.MINTY, dbc.icons.BOOTSTRAP],
+    suppress_callback_exceptions=True
+)
 
 # Serve card images from lib/artdesign/cards_framed
 @app.server.route('/cards_framed/<path:filename>')
 def serve_card_image(filename):
     cards_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib', 'artdesign', 'cards_framed'))
     return send_from_directory(cards_dir, filename)
+
+# Serve game assets from lib/artdesign/cards_assets
+@app.server.route('/cards_assets/<path:filename>')
+def serve_game_asset(filename):
+    assets_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib', 'artdesign', 'cards_assets'))
+    return send_from_directory(assets_dir, filename)
+
 
 app.layout = dmc.MantineProvider([
     dbc.Container([
@@ -53,6 +71,7 @@ app.layout = dmc.MantineProvider([
                 html.Div(id='deck-content')
             ],
         ),
+        
         dmc.Button(     # Your deck
             "Your Deck",
             id='open-drawer-btn',
@@ -65,6 +84,12 @@ app.layout = dmc.MantineProvider([
             size='xs',
             variant='light',
             style={'position': 'fixed', 'top': 8, 'left': 8, 'zIndex': 2100, 'padding': '0.3rem 0.7rem', 'fontSize': '0.9rem'},
+        ),
+        dbc.Tooltip(
+            "View your current deck",
+            target="open-drawer-btn",
+            placement="bottom",
+            style={"fontSize": "0.95rem"}
         ),
 
         dmc.Button(     # PDF to print
@@ -81,7 +106,13 @@ app.layout = dmc.MantineProvider([
             style={'position': 'fixed', 'top': 8, 'left': 150, 'zIndex': 2100, 'padding': '0.3rem 0.7rem', 'fontSize': '0.9rem', 'color': 'red'},
         ),
         dcc.Download(id="pdf-download"),
-        
+        dbc.Tooltip(
+            "Download a printable PDF of your deck (⚠️ wait for more than 30 seconds after clicking)",
+            target="PDF-btn",
+            placement="bottom",
+            style={"fontSize": "0.95rem"}
+        ),
+
         dmc.Modal(      # Modal for deck stats
             id="deck-stats-modal",
             title="Deck Statistics",
@@ -113,6 +144,12 @@ app.layout = dmc.MantineProvider([
             variant='light',
             style={'position': 'fixed', 'top': 8, 'left': 300, 'zIndex': 2100, 'padding': '0.3rem 0.7rem', 'fontSize': '0.9rem', 'color': 'green'},
         ),
+        dbc.Tooltip(
+            "Get some statistics about your deck",
+            target="deck-stats-btn",
+            placement="bottom",
+            style={"fontSize": "0.95rem"}
+        ),
 
         dmc.Button(     # Save deck
             "Save deck",
@@ -128,6 +165,12 @@ app.layout = dmc.MantineProvider([
             style={'position': 'fixed', 'top': 8, 'left': 450, 'zIndex': 2100, 'padding': '0.3rem 0.7rem', 'fontSize': '0.9rem', 'color': '#caae60'},
         ),
         dcc.Download(id="save-deck-download"),
+        dbc.Tooltip(
+            "Save your current deck as a text file",
+            target="save-deck-btn",
+            placement="bottom",
+            style={"fontSize": "0.95rem"}
+        ),
 
         dcc.Upload(     # Load deck
             id='deck-upload',
@@ -149,6 +192,12 @@ app.layout = dmc.MantineProvider([
             },
             multiple=False,
         ),
+        dbc.Tooltip(
+            "Load a previously saved deck",
+            target="load-deck-btn",
+            placement="bottom",
+            style={"fontSize": "0.95rem"}
+        ),
         
         html.Div([      # Top filter menu
             dbc.Row([
@@ -156,14 +205,15 @@ app.layout = dmc.MantineProvider([
                     dbc.Row([
                         dbc.Col([
                             dcc.Dropdown(id='faction-filter', options=get_options('faction'), multi=True, placeholder='Faction'),
-                            dmc.Text("⚠️ Select at least 3 filters to view cards", size="xs", c="dimmed", style={"marginBottom": "0.5rem"}),
+                            dmc.Text("❗Select at least 3 filters to view cards", size="xs", c="dimmed", style={"marginBottom": "0.5rem"}),
                         ], xs=12, sm=6, md=4, lg=2, className='mb-2'),
                         dbc.Col([
                             dcc.Dropdown(id='mana-filter', options=get_options('mana'), multi=True, placeholder='Mana'),
-                            dmc.Text("Cards loading time is quite long, sorry 😔", size="xs", c="dimmed", style={"marginBottom": "0.5rem"}),
+                            dmc.Text("⚠️ Actualizing makes you lose current deck", size="xs", c="dimmed", style={"marginBottom": "0.5rem"}),
                         ], xs=12, sm=6, md=4, lg=2, className='mb-2'),
                         dbc.Col([
                             dcc.Dropdown(id='advancing-filter', options=get_options('advancing'), multi=True, placeholder='Advancing'),
+                            dmc.Text("Cards loading time is quite long, sorry 😔", size="xs", c="dimmed", style={"marginBottom": "0.5rem"}),
                         ], xs=12, sm=6, md=4, lg=2, className='mb-2'),
                         dbc.Col([
                             dcc.Dropdown(id='shield-filter', options=get_options('shield'), multi=True, placeholder='Shield'),
@@ -182,10 +232,11 @@ app.layout = dmc.MantineProvider([
         html.Div([      # Cards container
             dbc.Row([
                 dbc.Col([
-                    html.Div(id='cards-container', className='d-flex flex-wrap justify-content-center align-items-stretch')
+                    # html.Div(id='cards-container', className='d-flex flex-wrap justify-content-center align-items-stretch')
+                    html.Div(id='cards-container', className='d-flex flex-wrap justify-content-center align-items-start')
                 ], width=12)
             ]),
-        ], id='main-content', style={'backgroundColor': '#0a0a0a'}),
+        ], id='main-content', style={'backgroundColor': "#0e0e0e"}),
 
         dcc.Store(id='deck', data=[]),
         dcc.Store(id='show-alert', data=False),
@@ -211,7 +262,7 @@ app.layout = dmc.MantineProvider([
                 'padding': '1.5rem 2rem',
             }
         ),
-    ], fluid=True, style={'backgroundColor': '#0a0a0a'})
+    ], fluid=True, style={'backgroundColor': '#0e0e0e'})
 ])
 
 
@@ -293,7 +344,7 @@ def open_drawer(n, opened):
 )
 def show_deck(deck):
     if not deck:
-        return dmc.Text("Your deck is empty.", c="dimmed")
+        return dmc.Text("Your deck is empty. Add cards to your deck to see them here.", c="dimmed")
     # Show card images and ids in the deck
     cards = []
     # Show cards at 300x450 for much greater visibility
@@ -346,8 +397,7 @@ def update_cards(faction, mana, advancing, shield, condition, effect, deck):
     num_set = sum(1 for f in filters if f)
     if num_set < n_min_filters:
         return presentation_page()
-        # return [html.Div(f"Select at least {n_min_filters} filters to view cards.", style={
-        #     'color': 'white', 'fontSize': '1.5rem', 'textAlign': 'center'})]
+    
     filtered = df
     if faction:
         filtered = filtered.filter(pl.col('faction').is_in(faction))
@@ -366,7 +416,7 @@ def update_cards(faction, mana, advancing, shield, condition, effect, deck):
         img_path = f"/cards_framed/{row['card_id']}.png"
         card = dbc.Card([
             html.Div([
-                dbc.CardImg(src=img_path, top=True, style={'objectFit': 'contain', 'width': '100%', 'height': 'auto', 'maxHeight': '350px', 'background': "#0a0a0a"}),
+                dbc.CardImg(src=img_path, top=True, style={'objectFit': 'contain', 'width': '100%', 'height': 'auto', 'maxHeight': '350px', 'background': "#0e0e0e"}),
                 dmc.Button(
                     'Add',
                     id={'type': 'add-to-deck', 'index': row['card_id']},
@@ -386,7 +436,7 @@ def update_cards(faction, mana, advancing, shield, condition, effect, deck):
                     n_clicks=0
                 )
             ], style={'position': 'relative', 'width': '100%'}),
-        ], className='m-2 card-responsive', style={'minHeight': '14rem', 'display': 'inline-block', 'border': '2px solid #0a0a0a'})
+        ], className='m-2 card-responsive', style={'minHeight': '14rem', 'display': 'inline-block', 'border': '2px solid #0e0e0e'})
         cards.append(card)
     return cards
 
@@ -424,6 +474,7 @@ def update_deck(add_n_clicks, rem_n_clicks, deck):
     
     return deck, False, None, None
 
+# Load deck from uploaded file
 @app.callback(
     [Output('deck', 'data', allow_duplicate=True), Output('deck-drawer', 'opened', allow_duplicate=True)],
     Input('deck-upload', 'contents'),
@@ -438,9 +489,7 @@ def load_deck_from_file(contents, deck):
     decoded = base64.b64decode(content_string)
     try:
         card_ids = [line.strip() for line in decoded.decode('utf-8').splitlines() if line.strip()]
-        print(f'deck UPLOAD: {card_ids}')
         for card_id in card_ids:
-            print(f'deck UPLOAD: Loading card_id: {card_id}')
             if card_id not in deck:
                 deck.append(card_id)
         return deck, True
@@ -469,7 +518,7 @@ def show_alert(added, card_id, removed_id):
         return True, f"Removed from deck: {name} ({card_id})"
     return False, ''
 
-# PDF GENERATION CALLBACK
+# pdf generation callback
 @app.callback(
     Output("pdf-download", "data"),
     Input("PDF-btn", "n_clicks"),
@@ -479,86 +528,141 @@ def show_alert(added, card_id, removed_id):
 def generate_pdf(n_clicks, deck):
     if not n_clicks or not deck:
         return dash.no_update
-        
-    # Get the image folder
-    cards_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib', 'artdesign', 'cards_framed'))
-    # PDF settings
-    page_width, page_height = A4  # in points (1 pt = 1/72 inch)
-    # Card size in mm
-    card_width_mm = 63
-    card_height_mm = 88
-    # Convert mm to points: 1 mm = 2.83465 pt
-    mm_to_pt = 2.83465
-    card_width_pt = card_width_mm * mm_to_pt
-    card_height_pt = card_height_mm * mm_to_pt
-    # Spacing between cards (0.5mm)
-    spacing_mm = 0.5
-    spacing_pt = spacing_mm * mm_to_pt
-
-    # Compute how many cards fit per row/column, accounting for spacing between cards
-    cols = int((page_width + spacing_pt) // (card_width_pt + spacing_pt))
-    rows = int((page_height + spacing_pt) // (card_height_pt + spacing_pt))
-
-    # Compute total grid size
-    grid_width = cols * card_width_pt + (cols - 1) * spacing_pt
-    grid_height = rows * card_height_pt + (rows - 1) * spacing_pt
-
-    # Center the grid on the page
-    margin_x = (page_width - grid_width) / 2 if page_width > grid_width else 0
-    margin_y = (page_height - grid_height) / 2 if page_height > grid_height else 0
     
-    # Duplicate deck list
-    card_ids = deck
-    # Prepare PDF
-    pdf_buffer = io.BytesIO()
-    c = canvas.Canvas(pdf_buffer, pagesize=A4)
-
-    # Add instruction text at the top of the first page
-    instruction_text = "Scaling parameter: Fit to Paper Size & NO Duplex printing"
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(40, page_height - 40, instruction_text)
-
-    for idx, card_id in enumerate(card_ids):        
-        img_path = os.path.join(cards_dir, f"{card_id}.png")
-        col = idx % cols
-        row = (idx // cols) % rows
-        if idx > 0 and idx % (cols * rows) == 0:
-            c.showPage()
-        x = margin_x + col * (card_width_pt + spacing_pt)
-        y = page_height - margin_y - ((row + 1) * card_height_pt + row * spacing_pt)
-
-        try:
-            # Draw a black rectangle behind the card image, slightly larger than the card
-            border_mm = spacing_mm * 2  # Make the border larger than spacing
-            border_pt = border_mm * mm_to_pt
-            c.setFillColorRGB(0, 0, 0)
-            c.rect(
-                x - border_pt / 2,
-                y - border_pt / 2,
-                card_width_pt + border_pt,
-                card_height_pt + border_pt,
-                fill=1,
-                stroke=0
-            )
-            c.drawImage(ImageReader(img_path), x, y, width=card_width_pt, height=card_height_pt, preserveAspectRatio=False, mask='auto')
-        except Exception as e:
-            continue
-    c.save()
-    pdf_buffer.seek(0)
-    return dcc.send_bytes(pdf_buffer.getvalue(), filename="deck_print.pdf")
+    pdf = utils.generate_pdf_from_deck(deck)
+    
+    return dcc.send_bytes(pdf, filename="GR_deck.pdf")
 
 # First presentation page
 def presentation_page():
-    return dmc.Center(
-        dmc.Stack([
-            dmc.Text("Use the filters above to start exploring cards!", size="md"),
-        ], align="center"),
-        style={"height": "80vh", "color": "white"}
+    return html.Div(
+        dmc.Center(
+            dmc.Stack([
+                dmc.Image(
+                    src="/cards_assets/GlobeRunners_large_logo.png",
+                    w=800,
+                    fit="contain",
+                    style={"marginBottom": "2rem"}
+                ),
+                dmc.Text("GlobeRunners is a free Print and Play (PnP) deck building card game.", size="md"),
+                dmc.Text("Build your deck around six main factions and three support factions (5400+ cards) to find your signature playstyle and be the first to travel around the world.", size="md"),
+                dmc.Image(
+                    src="/cards_assets/GlobeRunners_cards_logo.png",
+                    w=800,
+                    fit="contain",
+                    style={"marginTop": "1rem",
+                        "marginBottom": "1rem"}
+                ),
+                html.A("Learn more about the game in these slides", href="https://docs.google.com/presentation/d/1z8EvBVcOxjh-tqTbaPtmv5BvFKnN5--I628QCtqlDOc/edit?slide=id.g39d59216dc3_0_117#slide=id.g39d59216dc3_0_117", style={"fontSize": "1.3rem"}),
+                dmc.Divider(color="#000000", size="sm", my="lg"),
+                dmc.Text("Download printable pdf starter decks below (⌚>30 seconds🙏):", size="md"),
+                dmc.Group([
+                    dmc.Button("Dwarves starter deck", id="download-dwarves-pdf-btn", color="#236CA5", size="md", variant="light"),
+                    dmc.Button("Demons starter deck", id="download-demons-pdf-btn", color="#3E1B6A", size="md", variant="light"),
+                    dmc.Button("Twigs starter deck", id="download-twigs-pdf-btn", color="#4A7D3A", size="md", variant="light"),
+                    dmc.Button("Miaous starter deck", id="download-miaous-pdf-btn", color="#FF8253", size="md", variant="light"),
+                    dmc.Button("Orcs starter deck", id="download-orcs-pdf-btn", color="#780B0B", size="md", variant="light"),
+                    dmc.Button("Mummies starter deck", id="download-mummies-pdf-btn", color="#FDF5E6", size="md", variant="light"),
+                ], align="center", gap="xs"),
+                dmc.Text("Download printable pdf support factions below:", size="md"),
+                dmc.Group([
+                    dmc.Button("Engineers", id="download-Eng-pdf-btn", color="#B3633E", size="md", variant="light"),
+                    dmc.Button("Doctors", id="download-doc-pdf-btn", color="#C06060", size="md", variant="light"),
+                    dmc.Button("Mages", id="download-mag-pdf-btn", color="#6DA0C2", size="md", variant="light"),
+                ], align="center", gap="xs"),
+                dcc.Download(id="dwarves-pdf-download"),
+                dcc.Download(id="demons-pdf-download"),
+                dcc.Download(id="twigs-pdf-download"),
+                dcc.Download(id="miaous-pdf-download"),
+                dcc.Download(id="orcs-pdf-download"),
+                dcc.Download(id="mummies-pdf-download"),
+                dcc.Download(id="engineers-pdf-download"),
+                dcc.Download(id="doctors-pdf-download"),
+                dcc.Download(id="mages-pdf-download"),
+                dmc.Divider(color="#000000", size="sm", my="lg"),
+                dmc.Text("⚠️ All the illustrations in this project are AI-generated. While I am aware of the board game community's reservations regarding AI, this game is entirely a one-person passion project. Utilizing AI for the artwork was a necessary compromise to make the massive number of unique cards feasible.", size="xs"),
+            ], align="center", gap="xs", justify="flex-start"),
+            style={
+                "color": "white",
+                "width": "100%",
+                "maxWidth": "1600px",
+                "margin": "0 auto",
+                "padding": "2rem 1rem"
+            }
+        ),
+        style={
+            "backgroundColor": "#0e0e0e",
+            "minHeight": "100vh",
+            "width": "100vw"
+        }
     )
 
+# download starter decks callbacks
+@app.callback(
+    [
+        Output("dwarves-pdf-download", "data"),
+        Output("demons-pdf-download", "data"),
+        Output("twigs-pdf-download", "data"),
+        Output("miaous-pdf-download", "data"),
+        Output("orcs-pdf-download", "data"),
+        Output("mummies-pdf-download", "data"),
+        Output("engineers-pdf-download", "data"),
+        Output("doctors-pdf-download", "data"),
+        Output("mages-pdf-download", "data"),
+    ],
+    [
+        Input("download-dwarves-pdf-btn", "n_clicks"),
+        Input("download-demons-pdf-btn", "n_clicks"),
+        Input("download-twigs-pdf-btn", "n_clicks"),
+        Input("download-miaous-pdf-btn", "n_clicks"),
+        Input("download-orcs-pdf-btn", "n_clicks"),
+        Input("download-mummies-pdf-btn", "n_clicks"),
+        Input("download-Eng-pdf-btn", "n_clicks"),
+        Input("download-doc-pdf-btn", "n_clicks"),
+        Input("download-mag-pdf-btn", "n_clicks"),
+    ],
+    prevent_initial_call=True
+)
+def download_dwarves_pdf(*n_clicks):
+    ctx = callback_context
+    if not ctx.triggered:
+        return dash.no_update
+    prop_id = ctx.triggered[0]['prop_id']
+    if prop_id == "download-dwarves-pdf-btn.n_clicks":
+        deck_pdf_path = os.path.join(deck_path, "Dwarves_starter_deck.pdf")
+        return dcc.send_file(deck_pdf_path, filename="GR_dwarves_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    elif prop_id == "download-demons-pdf-btn.n_clicks":
+        deck_pdf_path = os.path.join(deck_path, "Demons_starter_deck.pdf")
+        return dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_demons_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    elif prop_id == "download-twigs-pdf-btn.n_clicks":
+        deck_pdf_path = os.path.join(deck_path, "Twigs_starter_deck.pdf")
+        return dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_twigs_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    elif prop_id == "download-miaous-pdf-btn.n_clicks":
+        deck_pdf_path = os.path.join(deck_path, "Miaous_starter_deck.pdf")
+        return dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_miaous_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    elif prop_id == "download-orcs-pdf-btn.n_clicks":
+        deck_pdf_path = os.path.join(deck_path, "Orcs_starter_deck.pdf")
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_orcs_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    elif prop_id == "download-mummies-pdf-btn.n_clicks":
+        deck_pdf_path = os.path.join(deck_path, "Mummies_starter_deck.pdf")
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_mummies_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update
+    elif prop_id == "download-Eng-pdf-btn.n_clicks":
+        deck_pdf_path = os.path.join(deck_path, "Supfac_Eng.pdf")
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_engineers_support_faction.pdf"), dash.no_update, dash.no_update
+    elif prop_id == "download-doc-pdf-btn.n_clicks":
+        deck_pdf_path = os.path.join(deck_path, "Supfac_Doc.pdf")
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_doctors_support_faction.pdf"), dash.no_update
+    elif prop_id == "download-mag-pdf-btn.n_clicks":
+        deck_pdf_path = os.path.join(deck_path, "Supfac_Mag.pdf")
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_mages_support_faction.pdf")
+    return dash.no_update
 
 if __name__ == '__main__':
-    ip = socket.gethostbyname(socket.gethostname())
-    print(f"Running on http://{ip}:8050")
-    app.run(debug=True, host=ip, port=8050)
+    # debug mode
+    # ip = socket.gethostbyname(socket.gethostname())
+    # print(f"Running on http://{ip}:8050")
+    # app.run(debug=True, host=ip, port=8050)
+
+    # production mode
+    app.run(host="0.0.0.0", port=8050)
 
