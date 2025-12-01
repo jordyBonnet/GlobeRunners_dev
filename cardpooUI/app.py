@@ -31,11 +31,11 @@ db_path = os.path.join(os.path.dirname(__file__), '..', 'lib', 'cardpool', 'card
 df = pl.read_parquet(db_path)
 deck_path = os.path.join(os.path.dirname(__file__), 'decks_saved')
 utils = Utils()
+vs = "0.5"
 
 # Get unique filter options
 def get_options(col):
     return [{'label': str(x), 'value': x} for x in sorted(df[col].unique().to_list())]
-
 
 
 app = dash.Dash(
@@ -47,7 +47,7 @@ app = dash.Dash(
 # Serve card images from lib/artdesign/cards_framed
 @app.server.route('/cards_framed/<path:filename>')
 def serve_card_image(filename):
-    cards_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib', 'artdesign', 'cards_framed'))
+    cards_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib', 'artdesign', f'cards_framed_{vs}'))
     return send_from_directory(cards_dir, filename)
 
 # Serve game assets from lib/artdesign/cards_assets
