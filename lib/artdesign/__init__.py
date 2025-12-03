@@ -354,10 +354,10 @@ class CardLayers:
 class Utils:
     """ class with utility functions """
     
-    def generate_pdf_from_deck(self, deck):
+    def generate_pdf_from_deck(self, deck, vs):
         """ will output a pdf file with all the cards in the deck (list of cards_ids) """
         # Get the image folder
-        cards_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'cards_framed'))
+        cards_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), f'cards_framed_{vs}'))
         # PDF settings
         page_width, page_height = A4  # in points (1 pt = 1/72 inch)
         # Card size in mm

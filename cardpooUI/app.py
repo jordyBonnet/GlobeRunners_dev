@@ -31,7 +31,7 @@ db_path = os.path.join(os.path.dirname(__file__), '..', 'lib', 'cardpool', 'card
 df = pl.read_parquet(db_path)
 deck_path = os.path.join(os.path.dirname(__file__), 'decks_saved')
 utils = Utils()
-vs = "0.5"
+vs = "0.6"
 
 # Get unique filter options
 def get_options(col):
@@ -529,7 +529,7 @@ def generate_pdf(n_clicks, deck):
     if not n_clicks or not deck:
         return dash.no_update
     
-    pdf = utils.generate_pdf_from_deck(deck)
+    pdf = utils.generate_pdf_from_deck(deck, vs=vs)
     
     return dcc.send_bytes(pdf, filename="GR_deck.pdf")
 
@@ -555,7 +555,7 @@ def presentation_page():
                 ),
                 html.A("Learn more about the game in these slides", href="https://docs.google.com/presentation/d/1z8EvBVcOxjh-tqTbaPtmv5BvFKnN5--I628QCtqlDOc/edit?slide=id.g39d59216dc3_0_117#slide=id.g39d59216dc3_0_117", style={"fontSize": "1.3rem"}),
                 dmc.Divider(color="#000000", size="sm", my="lg"),
-                dmc.Text("Download printable pdf starter decks below (⌚>30 seconds🙏):", size="md"),
+                dmc.Text("Download printable pdf starter decks below (⚠️download start after 30sec):", size="md"),
                 dmc.Group([
                     dmc.Button("Dwarves starter deck", id="download-dwarves-pdf-btn", color="#236CA5", size="md", variant="light"),
                     dmc.Button("Demons starter deck", id="download-demons-pdf-btn", color="#3E1B6A", size="md", variant="light"),
@@ -630,31 +630,31 @@ def download_dwarves_pdf(*n_clicks):
     prop_id = ctx.triggered[0]['prop_id']
     if prop_id == "download-dwarves-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Dwarves_starter_deck.pdf")
-        return dcc.send_file(deck_pdf_path, filename="GR_dwarves_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dcc.send_file(deck_pdf_path, filename="Dwarves_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
     elif prop_id == "download-demons-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Demons_starter_deck.pdf")
-        return dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_demons_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dcc.send_file(deck_pdf_path, filename="Demons_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
     elif prop_id == "download-twigs-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Twigs_starter_deck.pdf")
-        return dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_twigs_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Twigs_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
     elif prop_id == "download-miaous-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Miaous_starter_deck.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_miaous_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Miaous_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
     elif prop_id == "download-orcs-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Orcs_starter_deck.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_orcs_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Orcs_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update
     elif prop_id == "download-mummies-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Mummies_starter_deck.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_mummies_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Mummies_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update
     elif prop_id == "download-Eng-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Supfac_Eng.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_engineers_support_faction.pdf"), dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Engineers_support_faction.pdf"), dash.no_update, dash.no_update
     elif prop_id == "download-doc-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Supfac_Doc.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_doctors_support_faction.pdf"), dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Doctors_support_faction.pdf"), dash.no_update
     elif prop_id == "download-mag-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Supfac_Mag.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="GR_mages_support_faction.pdf")
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Mages_support_faction.pdf")
     return dash.no_update
 
 if __name__ == '__main__':
