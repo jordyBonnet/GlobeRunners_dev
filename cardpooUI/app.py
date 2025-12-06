@@ -34,8 +34,12 @@ utils = Utils()
 vs = "0.6"
 
 # Get unique filter options
-def get_options(col):
-    return [{'label': str(x), 'value': x} for x in sorted(df[col].unique().to_list())]
+def get_options(col, faction_filter=None):
+    """Get unique filter options, optionally filtered by faction"""
+    filtered_df = df
+    if faction_filter:
+        filtered_df = df.filter(pl.col('faction').is_in(faction_filter))
+    return [{'label': str(x), 'value': x} for x in sorted(filtered_df[col].unique().to_list())]
 
 
 app = dash.Dash(
@@ -545,7 +549,7 @@ def presentation_page():
                     style={"marginBottom": "2rem"}
                 ),
                 dmc.Text("GlobeRunners is a free Print and Play (PnP) deck building card game.", size="md"),
-                dmc.Text("Build your deck around six main factions and three support factions (5400+ cards) to find your signature playstyle and be the first to travel around the world.", size="md"),
+                dmc.Text("Find your signature playstyle navigating through more than 7500 cards, build your deck around six main factions and three support factions and be the first to travel around the world.", size="md"),
                 dmc.Image(
                     src="/cards_assets/GlobeRunners_cards_logo.png",
                     w=800,
@@ -596,6 +600,43 @@ def presentation_page():
             "width": "100vw"
         }
     )
+
+# Update filter options based on faction selection
+@app.callback(
+    [
+        Output('mana-filter', 'options'),
+        Output('advancing-filter', 'options'),
+        Output('shield-filter', 'options'),
+        Output('condition-filter', 'options'),
+        Output('effect-filter', 'options'),
+    ],
+    Input('faction-filter', 'value')
+)
+def update_filter_options(faction):
+    """Update all filter options based on selected faction"""
+    return [
+        get_options('mana', faction),
+        get_options('advancing', faction),
+        get_options('shield', faction),
+        get_options('condition', faction),
+        get_options('effect', faction),
+    ]
+
+# Clear dependent filters when faction changes
+@app.callback(
+    [
+        Output('mana-filter', 'value'),
+        Output('advancing-filter', 'value'),
+        Output('shield-filter', 'value'),
+        Output('condition-filter', 'value'),
+        Output('effect-filter', 'value'),
+    ],
+    Input('faction-filter', 'value'),
+    prevent_initial_call=True
+)
+def clear_dependent_filters(faction):
+    """Clear other filters when faction selection changes"""
+    return [None, None, None, None, None]
 
 # download starter decks callbacks
 @app.callback(
