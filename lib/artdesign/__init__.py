@@ -390,8 +390,8 @@ class Utils:
         c = canvas.Canvas(pdf_buffer, pagesize=A4)
 
         # Add instruction text at the top of the first page
-        instruction_text = "Scaling parameter: Fit to Paper Size & NO Duplex printing"
-        c.setFont("Helvetica-Bold", 12)
+        instruction_text = "Scaling parameter: Fit to Paper Size & NO Duplex printing / Paramètres d'impression: Ajuster à la taille du papier & PAS recto verso"
+        c.setFont("Helvetica", 8)
         c.drawString(40, page_height - 40, instruction_text)
 
         for idx, card_id in enumerate(card_ids):        
@@ -419,6 +419,33 @@ class Utils:
                 c.drawImage(ImageReader(img_path), x, y, width=card_width_pt, height=card_height_pt, preserveAspectRatio=False, mask='auto')
             except Exception as e:
                 continue
+        
+        # Add a page with 9 card backs
+        c.showPage()
+        card_back_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'cards_assets', 'GR_cards_back.png'))
+        for idx in range(9):
+            col = idx % cols
+            row = idx // cols
+            x = margin_x + col * (card_width_pt + spacing_pt)
+            y = page_height - margin_y - ((row + 1) * card_height_pt + row * spacing_pt)
+            
+            try:
+                # Draw a black rectangle behind the card back
+                border_mm = spacing_mm * 2
+                border_pt = border_mm * mm_to_pt
+                c.setFillColorRGB(0, 0, 0)
+                c.rect(
+                    x - border_pt / 2,
+                    y - border_pt / 2,
+                    card_width_pt + border_pt,
+                    card_height_pt + border_pt,
+                    fill=1,
+                    stroke=0
+                )
+                c.drawImage(ImageReader(card_back_path), x, y, width=card_width_pt, height=card_height_pt, preserveAspectRatio=False, mask='auto')
+            except Exception as e:
+                continue
+        
         c.save()
         pdf_buffer.seek(0)
         return pdf_buffer.getvalue()

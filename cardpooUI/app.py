@@ -11,6 +11,7 @@ use: https://free-url-shortener.rb.gy/ to reduce the given long url by cloudflar
 
 from flask import send_from_directory
 import polars as pl
+import plotly.graph_objs as go
 import dash
 from dash import html, dcc, Input, Output, State, callback_context
 import dash_mantine_components as dmc
@@ -110,6 +111,14 @@ app.layout = dmc.MantineProvider([
             style={'position': 'fixed', 'top': 8, 'left': 150, 'zIndex': 2100, 'padding': '0.3rem 0.7rem', 'fontSize': '0.9rem', 'color': 'red'},
         ),
         dcc.Download(id="pdf-download"),
+        dcc.Loading(
+            id="pdf-loading",
+            type="default",
+            children=html.Div(id="pdf-loading-output"),
+            parent_className="loading-wrapper",
+            parent_style={'position': 'fixed', 'top': '50%', 'left': '50%', 'transform': 'translate(-50%, -50%)', 'zIndex': 9999},
+            style={'transform': 'scale(4)'}
+        ),
         dbc.Tooltip(
             "Download a printable PDF of your deck (⚠️ wait for more than 30 seconds after clicking)",
             target="PDF-btn",
@@ -125,11 +134,16 @@ app.layout = dmc.MantineProvider([
             zIndex=3000,  # <-- Add this line
             children=[
                 dmc.Stack([
-                    dmc.Text("Deck Mana Histogram", size="lg"),
+                    dmc.Text("Deck Rules: Exactly 20 cards (that you will mix with 10 support faction cards later). \
+                             Singleton format: your deck may only contain one copy of any card. \
+                             Maximum of 5 cards sharing the same effect or same condition.", size="md"),
+                    dmc.Divider(size="sm", my="md"),
+                    dmc.Text("", id="deck-advancing-stats", size="md"),
                     dcc.Graph(id="deck-mana-histogram"),
+                    # dmc.Text("Condition-Effect Matrix", size="lg"),
+                    dcc.Graph(id="deck-condition-effect-matrix"),
+                    dmc.Text("", id="deck-validity", size="md"),
                     dmc.Text("Number of Cards: ", id="deck-num-cards", size="md"),
-                    dmc.Text("Conditions in Deck:", size="md"),
-                    html.Ul(id="deck-conditions-list"),
                 ], gap="md")
             ],
             opened=False,
@@ -305,31 +319,140 @@ def toggle_deck_stats_modal(open_click, close_event, opened):
 
 # Deck stats content callback
 @app.callback(
-    [Output("deck-mana-histogram", "figure"), Output("deck-num-cards", "children"), Output("deck-conditions-list", "children")],
+    [Output("deck-mana-histogram", "figure"), 
+     Output("deck-condition-effect-matrix", "figure"),
+     Output("deck-validity", "children"),
+     Output("deck-num-cards", "children"),
+     Output("deck-advancing-stats", "children")],
     Input("deck", "data")
 )
-def update_deck_stats(deck):
-    import plotly.graph_objs as go
+def update_deck_stats(deck):  
     if not deck:
-        fig = go.Figure()
-        fig.update_layout(title="No cards in deck", xaxis_title="Mana", yaxis_title="Count")
-        return fig, "Number of Cards: 0", []
+        fig_mana = go.Figure()
+        fig_mana.update_layout(title="No cards in deck", xaxis_title="Mana", yaxis_title="Count")
+        fig_matrix = go.Figure()
+        fig_matrix.update_layout(title="No cards in deck", xaxis_title="Effect", yaxis_title="Condition")
+        return fig_mana, fig_matrix, "", "Number of Cards: 0", ""
+    
     deck_df = df.filter(pl.col('card_id').is_in(deck))
+    
     # Mana histogram
     mana_counts = deck_df.group_by("mana").len().sort("mana")
     mana_x = mana_counts["mana"].to_list()
-    # Find the column that is the count column (should be the last one, not 'card_id')
     count_col = [col for col in mana_counts.columns if col not in ("mana", "condition", "effect", "faction", "shield", "name")][-1]
     mana_y = mana_counts[count_col].to_list()
-    fig = go.Figure([go.Bar(x=mana_x, y=mana_y)])
-    fig.update_layout(title="Mana Cost Histogram", xaxis_title="Mana Cost", yaxis_title="Count", template="plotly_white")
+    fig_mana = go.Figure([go.Bar(x=mana_x, y=mana_y)])
+    fig_mana.update_layout(
+        title="Mana Cost Histogram", 
+        xaxis_title="Mana Cost", 
+        yaxis_title="Number of Cards", 
+        template="plotly_white",
+        xaxis=dict(dtick=1)
+    )
+    
+    # Condition-Effect Matrix
+    cond_eff_counts = deck_df.group_by(["condition", "effect"]).len()
+    count_col_matrix = [col for col in cond_eff_counts.columns if col not in ("mana", "condition", "effect", "faction", "shield", "name")][-1]
+    
+    # Get unique conditions and effects
+    conditions = sorted(deck_df["condition"].unique().to_list())
+    effects = sorted(deck_df["effect"].unique().to_list())
+    
+    # Build matrix
+    matrix = []
+    for cond in conditions:
+        row = []
+        for eff in effects:
+            # Find count for this combination
+            match = cond_eff_counts.filter(
+                (pl.col("condition") == cond) & (pl.col("effect") == eff)
+            )
+            count = match[count_col_matrix][0] if len(match) > 0 else 0
+            row.append(count)
+        matrix.append(row)
+    
+    fig_matrix = go.Figure(data=go.Heatmap(
+        z=matrix,
+        x=effects,
+        y=conditions,
+        colorscale='Blues',
+        text=matrix,
+        texttemplate='%{text}',
+        textfont={"size": 10},
+        showscale=True
+    ))
+    fig_matrix.update_layout(
+        title="Condition-Effect Matrix",
+        xaxis_title="Effect",
+        yaxis_title="Condition",
+        template="plotly_white"
+    )
+    
     # Number of cards
     num_cards = len(deck)
-    # Conditions list
-    cond_counts = deck_df.group_by("condition").len().sort("condition")
-    cond_count_col = [col for col in cond_counts.columns if col not in ("mana", "condition", "effect", "faction", "shield", "name")][-1]
-    cond_items = [html.Li(f"{cond_counts['condition'][i]}: {cond_counts[cond_count_col][i]}") for i in range(len(cond_counts))]
-    return fig, f"Number of Cards: {num_cards}", cond_items
+    
+    # Deck validity checks
+    validity_message = ""
+    invalid_conditions = []
+    invalid_effects = []
+    
+    # Check conditions count
+    cond_counts = deck_df.group_by("condition").len()
+    count_col_cond = [col for col in cond_counts.columns if col not in ("mana", "condition", "effect", "faction", "shield", "name")][-1]
+    for i in range(len(cond_counts)):
+        if cond_counts[count_col_cond][i] > 5:
+            invalid_conditions.append(f"{cond_counts['condition'][i]} ({cond_counts[count_col_cond][i]})")
+    
+    # Check effects count
+    eff_counts = deck_df.group_by("effect").len()
+    count_col_eff = [col for col in eff_counts.columns if col not in ("mana", "condition", "effect", "faction", "shield", "name")][-1]
+    for i in range(len(eff_counts)):
+        if eff_counts[count_col_eff][i] > 5:
+            invalid_effects.append(f"{eff_counts['effect'][i]} ({eff_counts[count_col_eff][i]})")
+    
+    # Build validity message
+    if invalid_conditions or invalid_effects:
+        validity_parts = []
+        if invalid_conditions:
+            validity_parts.append(f"Conditions with >5 cards: {', '.join(invalid_conditions)}")
+        if invalid_effects:
+            validity_parts.append(f"Effects with >5 cards: {', '.join(invalid_effects)}")
+        validity_message = html.Span([
+            "⚠️ Deck Invalid: ",
+            html.Span(" | ".join(validity_parts), style={"color": "red", "fontWeight": "bold"})
+        ])
+    
+    # Format card count with color based on whether it's 20
+    if num_cards == 20:
+        num_cards_display = f"Number of Cards in deck: {num_cards} ✅"
+    else:
+        num_cards_display = html.Span([
+            "Number of Cards in deck: ",
+            html.Span(str(num_cards), style={"color": "red", "fontWeight": "bold"}), " ❌"
+        ])
+    
+    # Calculate advancing statistics
+    # Filter out cards with condition == 'block' for advancing calculation
+    deck_df_no_block = deck_df.filter(pl.col("condition") != "block")
+    total_advancing = deck_df_no_block["advancing"].sum()
+    
+    # Count cards with effect == 'advancing' and effect == 'backward' (excluding block condition)
+    advancing_effect_count = len(deck_df_no_block.filter(pl.col("effect") == "advancing"))
+    backward_effect_count = len(deck_df_no_block.filter(pl.col("effect") == "backward"))
+    
+    # Calculate advancing value: advancing + effect 'advancing' - effect 'backward'
+    advancing_value = total_advancing + advancing_effect_count - backward_effect_count
+    
+    # Calculate total mana cost
+    total_mana = deck_df["mana"].sum()
+    
+    # Calculate advancing/mana ratio
+    advancing_mana_ratio = advancing_value / total_mana if total_mana > 0 else 0
+    
+    # Format advancing stats display
+    advancing_stats_display = f"Advancing value of your deck: {advancing_value} (Advancing/Mana ratio: {advancing_mana_ratio:.2f})"
+    
+    return fig_mana, fig_matrix, validity_message, num_cards_display, advancing_stats_display
 
 # Deck drawer opening
 @app.callback(
@@ -524,18 +647,18 @@ def show_alert(added, card_id, removed_id):
 
 # pdf generation callback
 @app.callback(
-    Output("pdf-download", "data"),
+    [Output("pdf-download", "data"), Output("pdf-loading-output", "children")],
     Input("PDF-btn", "n_clicks"),
     State("deck", "data"),
     prevent_initial_call=True
 )
 def generate_pdf(n_clicks, deck):
     if not n_clicks or not deck:
-        return dash.no_update
+        return dash.no_update, dash.no_update
     
     pdf = utils.generate_pdf_from_deck(deck, vs=vs)
     
-    return dcc.send_bytes(pdf, filename="GR_deck.pdf")
+    return dcc.send_bytes(pdf, filename="GR_deck.pdf"), ""
 
 # First presentation page
 def presentation_page():
@@ -575,11 +698,17 @@ def presentation_page():
                     dmc.Button("Mages", id="download-mag-pdf-btn", color="#6DA0C2", size="md", variant="light"),
                 ], align="center", gap="xs"),
                 dcc.Download(id="dwarves-pdf-download"),
+                dcc.Loading(id="dwarves-loading", type="default", children=html.Div(id="dwarves-loading-output"), parent_style={'position': 'fixed', 'top': '50%', 'left': '50%', 'transform': 'translate(-50%, -50%)', 'zIndex': 9999}, style={'transform': 'scale(4)'}),
                 dcc.Download(id="demons-pdf-download"),
+                dcc.Loading(id="demons-loading", type="default", children=html.Div(id="demons-loading-output"), parent_style={'position': 'fixed', 'top': '50%', 'left': '50%', 'transform': 'translate(-50%, -50%)', 'zIndex': 9999}, style={'transform': 'scale(4)'}),
                 dcc.Download(id="twigs-pdf-download"),
+                dcc.Loading(id="twigs-loading", type="default", children=html.Div(id="twigs-loading-output"), parent_style={'position': 'fixed', 'top': '50%', 'left': '50%', 'transform': 'translate(-50%, -50%)', 'zIndex': 9999}, style={'transform': 'scale(4)'}),
                 dcc.Download(id="miaous-pdf-download"),
+                dcc.Loading(id="miaous-loading", type="default", children=html.Div(id="miaous-loading-output"), parent_style={'position': 'fixed', 'top': '50%', 'left': '50%', 'transform': 'translate(-50%, -50%)', 'zIndex': 9999}, style={'transform': 'scale(4)'}),
                 dcc.Download(id="orcs-pdf-download"),
+                dcc.Loading(id="orcs-loading", type="default", children=html.Div(id="orcs-loading-output"), parent_style={'position': 'fixed', 'top': '50%', 'left': '50%', 'transform': 'translate(-50%, -50%)', 'zIndex': 9999}, style={'transform': 'scale(4)'}),
                 dcc.Download(id="mummies-pdf-download"),
+                dcc.Loading(id="mummies-loading", type="default", children=html.Div(id="mummies-loading-output"), parent_style={'position': 'fixed', 'top': '50%', 'left': '50%', 'transform': 'translate(-50%, -50%)', 'zIndex': 9999}, style={'transform': 'scale(4)'}),
                 dcc.Download(id="engineers-pdf-download"),
                 dcc.Download(id="doctors-pdf-download"),
                 dcc.Download(id="mages-pdf-download"),
@@ -650,6 +779,12 @@ def clear_dependent_filters(faction):
         Output("engineers-pdf-download", "data"),
         Output("doctors-pdf-download", "data"),
         Output("mages-pdf-download", "data"),
+        Output("dwarves-loading-output", "children"),
+        Output("demons-loading-output", "children"),
+        Output("twigs-loading-output", "children"),
+        Output("miaous-loading-output", "children"),
+        Output("orcs-loading-output", "children"),
+        Output("mummies-loading-output", "children"),
     ],
     [
         Input("download-dwarves-pdf-btn", "n_clicks"),
@@ -667,36 +802,38 @@ def clear_dependent_filters(faction):
 def download_dwarves_pdf(*n_clicks):
     ctx = callback_context
     if not ctx.triggered:
-        return dash.no_update
+        return [dash.no_update] * 15
     prop_id = ctx.triggered[0]['prop_id']
+    empty_loading = [""] * 6  # For the 6 loading outputs
+    
     if prop_id == "download-dwarves-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Dwarves_starter_deck.pdf")
-        return dcc.send_file(deck_pdf_path, filename="Dwarves_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dcc.send_file(deck_pdf_path, filename="Dwarves_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, *empty_loading
     elif prop_id == "download-demons-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Demons_starter_deck.pdf")
-        return dash.no_update, dcc.send_file(deck_pdf_path, filename="Demons_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dcc.send_file(deck_pdf_path, filename="Demons_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, *empty_loading
     elif prop_id == "download-twigs-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Twigs_starter_deck.pdf")
-        return dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Twigs_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Twigs_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, *empty_loading
     elif prop_id == "download-miaous-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Miaous_starter_deck.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Miaous_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Miaous_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, *empty_loading
     elif prop_id == "download-orcs-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Orcs_starter_deck.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Orcs_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Orcs_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, dash.no_update, *empty_loading
     elif prop_id == "download-mummies-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Mummies_starter_deck.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Mummies_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Mummies_starter_deck.pdf"), dash.no_update, dash.no_update, dash.no_update, *empty_loading
     elif prop_id == "download-Eng-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Supfac_Eng.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Engineers_support_faction.pdf"), dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Engineers_support_faction.pdf"), dash.no_update, dash.no_update, *empty_loading
     elif prop_id == "download-doc-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Supfac_Doc.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Doctors_support_faction.pdf"), dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Doctors_support_faction.pdf"), dash.no_update, *empty_loading
     elif prop_id == "download-mag-pdf-btn.n_clicks":
         deck_pdf_path = os.path.join(deck_path, "Supfac_Mag.pdf")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Mages_support_faction.pdf")
-    return dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dcc.send_file(deck_pdf_path, filename="Mages_support_faction.pdf"), *empty_loading
+    return [dash.no_update] * 15
 
 if __name__ == '__main__':
     # debug mode
