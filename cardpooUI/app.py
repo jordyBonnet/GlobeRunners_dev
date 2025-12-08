@@ -358,10 +358,31 @@ def update_deck_stats(deck):
     conditions = sorted(deck_df["condition"].unique().to_list())
     effects = sorted(deck_df["effect"].unique().to_list())
     
+    # Check conditions and effects count first to identify invalid ones
+    cond_counts = deck_df.group_by("condition").len()
+    count_col_cond = [col for col in cond_counts.columns if col not in ("mana", "condition", "effect", "faction", "shield", "name")][-1]
+    invalid_condition_set = set()
+    invalid_conditions = []
+    for i in range(len(cond_counts)):
+        if cond_counts[count_col_cond][i] > 5:
+            invalid_condition_set.add(cond_counts['condition'][i])
+            invalid_conditions.append(f"{cond_counts['condition'][i]} ({cond_counts[count_col_cond][i]})")
+    
+    eff_counts = deck_df.group_by("effect").len()
+    count_col_eff = [col for col in eff_counts.columns if col not in ("mana", "condition", "effect", "faction", "shield", "name")][-1]
+    invalid_effect_set = set()
+    invalid_effects = []
+    for i in range(len(eff_counts)):
+        if eff_counts[count_col_eff][i] > 5:
+            invalid_effect_set.add(eff_counts['effect'][i])
+            invalid_effects.append(f"{eff_counts['effect'][i]} ({eff_counts[count_col_eff][i]})")
+    
     # Build matrix
     matrix = []
+    text_colors = []
     for cond in conditions:
         row = []
+        color_row = []
         for eff in effects:
             # Find count for this combination
             match = cond_eff_counts.filter(
@@ -369,23 +390,50 @@ def update_deck_stats(deck):
             )
             count = match[count_col_matrix][0] if len(match) > 0 else 0
             row.append(count)
+            # Set text color to red if count > 5, otherwise black
+            color_row.append('red' if count > 5 else 'black')
         matrix.append(row)
+        text_colors.append(color_row)
+    
+    # Create annotations for colored text
+    annotations = []
+    for i, cond in enumerate(conditions):
+        for j, eff in enumerate(effects):
+            annotations.append(
+                dict(
+                    x=eff,
+                    y=cond,
+                    text=str(matrix[i][j]),
+                    showarrow=False,
+                    font=dict(size=10, color=text_colors[i][j], weight='bold' if text_colors[i][j] == 'red' else 'normal')
+                )
+            )
     
     fig_matrix = go.Figure(data=go.Heatmap(
         z=matrix,
         x=effects,
         y=conditions,
         colorscale='Blues',
-        text=matrix,
-        texttemplate='%{text}',
-        textfont={"size": 10},
-        showscale=True
+        showscale=True,
+        hovertemplate='Condition: %{y}<br>Effect: %{x}<br>Count: %{z}<extra></extra>'
     ))
+    
+    # Update tick labels to highlight invalid conditions/effects in red
+    fig_matrix.update_yaxes(
+        tickvals=conditions,
+        ticktext=[f'<span style="color:red;font-weight:bold">{cond}</span>' if cond in invalid_condition_set else cond for cond in conditions]
+    )
+    fig_matrix.update_xaxes(
+        tickvals=effects,
+        ticktext=[f'<span style="color:red;font-weight:bold">{eff}</span>' if eff in invalid_effect_set else eff for eff in effects]
+    )
+    
     fig_matrix.update_layout(
         title="Condition-Effect Matrix",
         xaxis_title="Effect",
         yaxis_title="Condition",
-        template="plotly_white"
+        template="plotly_white",
+        annotations=annotations
     )
     
     # Number of cards
@@ -393,22 +441,6 @@ def update_deck_stats(deck):
     
     # Deck validity checks
     validity_message = ""
-    invalid_conditions = []
-    invalid_effects = []
-    
-    # Check conditions count
-    cond_counts = deck_df.group_by("condition").len()
-    count_col_cond = [col for col in cond_counts.columns if col not in ("mana", "condition", "effect", "faction", "shield", "name")][-1]
-    for i in range(len(cond_counts)):
-        if cond_counts[count_col_cond][i] > 5:
-            invalid_conditions.append(f"{cond_counts['condition'][i]} ({cond_counts[count_col_cond][i]})")
-    
-    # Check effects count
-    eff_counts = deck_df.group_by("effect").len()
-    count_col_eff = [col for col in eff_counts.columns if col not in ("mana", "condition", "effect", "faction", "shield", "name")][-1]
-    for i in range(len(eff_counts)):
-        if eff_counts[count_col_eff][i] > 5:
-            invalid_effects.append(f"{eff_counts['effect'][i]} ({eff_counts[count_col_eff][i]})")
     
     # Build validity message
     if invalid_conditions or invalid_effects:
