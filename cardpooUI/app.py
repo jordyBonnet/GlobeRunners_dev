@@ -23,7 +23,7 @@ from flask import send_file
 import ast
 import base64
 import sys
-HOME_DIR = r'c:\Users\jordy\Documents\python\projects\GenAI_TCG'
+HOME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(HOME_DIR)
 from lib.artdesign import Utils
 
@@ -120,7 +120,7 @@ app.layout = dmc.MantineProvider([
             style={'transform': 'scale(4)'}
         ),
         dbc.Tooltip(
-            "Download a printable PDF of your deck (⚠️ wait for more than 30 seconds after clicking)",
+            "Download a printable PDF of your deck (⚠️Download starts after 40sec)",
             target="PDF-btn",
             placement="bottom",
             style={"fontSize": "0.95rem"}
