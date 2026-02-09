@@ -5,7 +5,6 @@ import urllib.request
 import urllib.parse
 import os
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
-import io
 import numpy as np
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
